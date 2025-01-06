@@ -1,0 +1,61 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches:
+      - main  # or your default branch name
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Create .env file
+      run: |
+        echo "EACHLABS_API_KEY=${{ secrets.EACHLABS_API_KEY }}" > .env
+        echo "IMGBB_API_KEY=${{ secrets.IMGBB_API_KEY }}" >> .env
+      
+    - name: Deploy to server
+      uses: appleboy/ssh-action@master
+      with:
+        host: 162.55.51.97
+        username: ${{ secrets.SSH_USERNAME }}
+        password: ${{ secrets.SSH_PASSWORD }}
+        script: |
+          # Create app directory if it doesn't exist
+          mkdir -p ~/clothai
+          
+          # Stop existing service if running
+          if [ -f ~/clothai/main.pid ]; then
+            kill $(cat ~/clothai/main.pid) || true
+            rm ~/clothai/main.pid
+          fi
+          
+          # Clean old files
+          rm -rf ~/clothai/*
+          
+          # Copy new files
+          cd ${{ github.workspace }}
+          sshpass -p "${{ secrets.SSH_PASSWORD }}" scp -o StrictHostKeyChecking=no -r * ${{ secrets.SSH_USERNAME }}@162.55.51.97:~/clothai/
+          
+          # Install dependencies
+          cd ~/clothai
+          python3 -m pip install -r requirements.txt
+          
+          # Start the service
+          nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 > app.log 2>&1 & echo $! > main.pid
+          
+          echo "Deployment completed"
