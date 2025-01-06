@@ -35,27 +35,76 @@ jobs:
         username: ${{ secrets.SSH_USERNAME }}
         password: ${{ secrets.SSH_PASSWORD }}
         script: |
+          echo "Starting deployment..."
+          
           # Create app directory if it doesn't exist
           mkdir -p ~/clothai
+          cd ~/clothai
           
           # Stop existing service if running
           if [ -f ~/clothai/main.pid ]; then
+            echo "Stopping existing service..."
             kill $(cat ~/clothai/main.pid) || true
             rm ~/clothai/main.pid
           fi
           
           # Clean old files
+          echo "Cleaning old files..."
           rm -rf ~/clothai/*
           
-          # Copy new files
-          cd ${{ github.workspace }}
-          sshpass -p "${{ secrets.SSH_PASSWORD }}" scp -o StrictHostKeyChecking=no -r * ${{ secrets.SSH_USERNAME }}@162.55.51.97:~/clothai/
+          # Create temporary directory for files
+          echo "Creating temporary directory..."
+          mkdir -p ~/temp_deploy
+          cd ~/temp_deploy
+          
+          # Download repository files
+          echo "Downloading repository..."
+          git clone https://github.com/${{ github.repository }}.git .
+          
+          # Copy all files to app directory
+          echo "Copying files to app directory..."
+          cp -r * ~/clothai/
+          cp .env ~/clothai/
+          
+          # Clean up temp directory
+          cd ~
+          rm -rf ~/temp_deploy
+          
+          # Set up Python virtual environment
+          echo "Setting up Python environment..."
+          cd ~/clothai
+          python3 -m venv venv
+          source venv/bin/activate
           
           # Install dependencies
-          cd ~/clothai
-          python3 -m pip install -r requirements.txt
+          echo "Installing dependencies..."
+          python3 -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+          # Create .env file
+          echo "Creating .env file..."
+          echo "EACHLABS_API_KEY=${{ secrets.EACHLABS_API_KEY }}" > .env
+          echo "IMGBB_API_KEY=${{ secrets.IMGBB_API_KEY }}" >> .env
           
           # Start the service
-          nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 > app.log 2>&1 & echo $! > main.pid
+          echo "Starting the service..."
+          cd ~/clothai
+          source venv/bin/activate
+          nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 > app.log 2>&1 & echo $! > main.pid
           
-          echo "Deployment completed"
+          # Verify service is running
+          echo "Verifying service..."
+          sleep 5
+          if ps -p $(cat main.pid) > /dev/null; then
+            echo "Service is running with PID $(cat main.pid)"
+          else
+            echo "Service failed to start"
+            cat app.log
+            exit 1
+          fi
+          
+          # Test the endpoint
+          echo "Testing endpoint..."
+          curl -f http://localhost:8000/docs || exit 1
+          
+          echo "Deployment completed successfully!"
