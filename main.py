@@ -74,7 +74,8 @@ async def upload_to_imgbb(file: UploadFile) -> str:
 @app.post("/change-cloth")
 async def change_cloth(
     person: UploadFile = File(...),
-    cloth: UploadFile = File(...)
+    cloth: UploadFile = File(...),
+    clothing_type: str = "",
 ):
     """
     Change cloth in the person image with the provided cloth image.
@@ -103,7 +104,8 @@ async def change_cloth(
         logger.info(f"[{request_id}] Processing cloth change")
         result = cloth_change_api.change_cloth(
             person_image_url=person_url,
-            cloth_image_url=cloth_url
+            cloth_image_url=cloth_url,
+            clothing_type=clothing_type
         )
         
         logger.info(f"[{request_id}] Successfully initiated cloth change. Execution ID: {result.get('execution_id', 'unknown')}")
