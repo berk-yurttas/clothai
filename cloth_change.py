@@ -29,7 +29,7 @@ class ClothChangeAPI:
         }
         logger.info("ClothChangeAPI initialized")
 
-    def change_cloth(self, person_image_url, cloth_image_url, cloth_type='', webhook_url=''):
+    def change_cloth(self, person_image_url, cloth_image_url, clothing_type, webhook_url=''):
         """
         Change the cloth in the person image with the provided cloth image
         
@@ -48,7 +48,7 @@ class ClothChangeAPI:
                 "parameters": {
                     "Person": person_image_url,
                     "Cloth": cloth_image_url,
-                    "clothing_type": cloth_type
+                    "clothing_type": clothing_type
                 },
                 "webhook_url": webhook_url
             }

@@ -83,7 +83,6 @@ async def change_cloth(
     """
     request_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     logger.info(f"[{request_id}] New cloth change request received")
-    
     if not person.content_type.startswith("image/"):
         error_msg = "Person file must be an image"
         logger.error(f"[{request_id}] Validation error: {error_msg}")
