@@ -7,12 +7,21 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Create directory for SQLite database
+RUN mkdir -p /app/data && chown -R nobody:nogroup /app/data
+
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
+
+# Set permissions
+RUN chown -R nobody:nogroup /app
+
+# Switch to non-root user
+USER nobody
 
 # Expose the port
 EXPOSE 8000

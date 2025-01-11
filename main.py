@@ -1,6 +1,7 @@
 import os
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from cloth_change import ClothChangeAPI
 import base64
 import requests
@@ -8,6 +9,10 @@ from dotenv import load_dotenv
 import logging
 import traceback
 from datetime import datetime
+from sqlalchemy.orm import Session
+from database import get_db, DeviceTryCount
+from pydantic import BaseModel
+from typing import Optional
 
 # Configure logging
 logging.basicConfig(
@@ -37,6 +42,18 @@ app.add_middleware(
 # Initialize the ClothChangeAPI
 cloth_change_api = ClothChangeAPI()
 IMGBB_API_KEY = os.getenv('IMGBB_API_KEY')
+
+class TryCountRequest(BaseModel):
+    device_id: str
+    try_count: int
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "device_id": "device123",
+                "try_count": 3
+            }
+        }
 
 async def upload_to_imgbb(file: UploadFile) -> str:
     """Upload an image to ImgBB and return the URL"""
@@ -71,11 +88,24 @@ async def upload_to_imgbb(file: UploadFile) -> str:
         logger.error(f"{error_msg}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=error_msg)
 
+# API Key security
+API_KEY = os.getenv('MOBILE_API_KEY', 'your_mobile_api_key')  # Set this in .env file
+api_key_header = APIKeyHeader(name="X-API-Key")
+
+async def verify_api_key(api_key: str = Header(..., alias="X-API-Key")):
+    if api_key != API_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid API key"
+        )
+    return api_key
+
 @app.post("/change-cloth")
 async def change_cloth(
     person: UploadFile = File(...),
     cloth: UploadFile = File(...),
     clothing_type: str = "",
+    api_key: str = Depends(verify_api_key)
 ):
     """
     Change cloth in the person image with the provided cloth image.
@@ -116,7 +146,10 @@ async def change_cloth(
         raise HTTPException(status_code=500, detail=error_msg)
 
 @app.get("/status/{execution_id}")
-async def get_execution_status(execution_id: str):
+async def get_execution_status(
+    execution_id: str,
+    api_key: str = Depends(verify_api_key)
+):
     """
     Get the status of a cloth change execution.
     
@@ -143,6 +176,48 @@ async def get_execution_status(execution_id: str):
         error_msg = f"Error checking execution status: {str(e)}"
         logger.error(f"Error for execution {execution_id}: {error_msg}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=error_msg)
+
+@app.get("/try-count/{device_id}")
+async def get_try_count(
+    device_id: str, 
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """Get the remaining try count for a device"""
+    device = db.query(DeviceTryCount).filter(DeviceTryCount.device_id == device_id).first()
+    if not device:
+        return {"device_id": device_id, "try_count_left": None}
+    return {"device_id": device_id, "try_count_left": device.try_count_left}
+
+@app.post("/try-count")
+async def update_try_count(request: TryCountRequest, db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
+    """Update try count for a device"""
+    try:
+        device = db.query(DeviceTryCount).filter(DeviceTryCount.device_id == request.device_id).first()
+        
+        if not device:
+            device = DeviceTryCount(
+                device_id=request.device_id, 
+                try_count_left=request.try_count
+            )
+            db.add(device)
+        else:
+            device.try_count_left = request.try_count
+        
+        device.last_updated = datetime.utcnow()
+        db.commit()
+        return {"device_id": request.device_id, "try_count_left": device.try_count_left}
+    except Exception as e:
+        logger.error(f"Error updating try count: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/devices")
+async def get_devices(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """Get all devices"""
+    return db.query(DeviceTryCount).all()
 
 if __name__ == "__main__":
     import uvicorn
