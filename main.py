@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from database import get_db, DeviceTryCount
 from pydantic import BaseModel
 from typing import Optional
+import io
 
 # Configure logging
 logging.basicConfig(
@@ -166,6 +167,29 @@ async def get_execution_status(
         status = result.get('status', '').lower()
         
         logger.info(f"Status for execution {execution_id}: {status}")
+        if status == 'succeeded':
+            logger.info(f"Execution {execution_id} completed successfully")
+            output_url = result.get('output', '')
+            logger.info(result)
+            if output_url:
+                output_url = output_url.replace('"', '')
+                logger.info(f"Output URL: {output_url}")
+                
+                # Download the image
+                response = requests.get(output_url)
+                response.raise_for_status()
+                
+                # Create a temporary UploadFile
+                temp_file = UploadFile(
+                    filename=f"output_{execution_id}.png",
+                    file=io.BytesIO(response.content)
+                )
+                
+                # Upload to ImgBB
+                imgbb_url = await upload_to_imgbb(temp_file)
+                logger.info(f"Output image uploaded to ImgBB: {imgbb_url}")
+                result['output_url'] = imgbb_url
+                
         return {
             "execution_id": execution_id,
             "status": status,
